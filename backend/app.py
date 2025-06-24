@@ -6,8 +6,11 @@ from geopy.geocoders import Nominatim
 from datetime import datetime
 import requests
 import os 
+from flask_cors import CORS
+
 
 app = Flask(__name__)
+CORS(app)
 
 def get_db_connection():
     db_path = os.path.abspath('../database/tessera.db')

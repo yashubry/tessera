@@ -46,7 +46,7 @@ function EventCard({ id, name, date, time, location, imageUrl }) {
           <Text fontSize="sm">Location: {location}</Text>
           <Text fontSize="sm" color="red.500">{timeLeft}</Text>
           <Button colorScheme="cyan" mt="4" as={Link} to={`/events/${id}`}>
-            Buy Tickets!
+            buy tickets!
           </Button>
         </VStack>
       </VStack>

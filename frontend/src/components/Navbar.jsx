@@ -6,14 +6,9 @@ import { ColorModeButton } from "./ui/color-mode"; // Dark mode toggle
 
 function Navbar() {
   return (
-    <Flex bg="cyan.900" color="white" p="4" alignItems="center">
+    <Flex bg="cyan.900" color="white" p="4" alignItems="center" fontStyle="italic">
       <Box p="2">
-        <Text fontSize="xl" fontWeight="bold">Tessera Events</Text>
-      </Box>
-      <Box>
-        <Text fontSize="xl" fontWeight="bold">
-          Tessera Events
-        </Text>
+        <Text fontSize="3xl" fontWeight="black">TESSERA EVENTS</Text>
       </Box>
 
       <Spacer />
@@ -21,12 +16,14 @@ function Navbar() {
       <HStack spacing={4}>
         <Button
           variant="outline"
-          colorScheme="whiteAlpha"
+          colorScheme="white"
           leftIcon={<SiAseprite />}
+          fontStyle="italic"
         >
-          Profile
+          profile
         </Button>
-        // <ColorModeButton /> 
+         <ColorModeButton /> 
+         varient= "outline"
       </HStack>
     </Flex>
   );

@@ -9,8 +9,19 @@ import os
 from flask_cors import CORS
 
 
+from flask_jwt_extended import create_access_token
+from flask_jwt_extended import get_jwt_identity
+from flask_jwt_extended import jwt_required
+from flask_jwt_extended import JWTManager
+
+
 app = Flask(__name__)
 CORS(app)
+
+# Setup the Flask-JWT-Extended extension
+app.config["JWT_SECRET_KEY"] = "imsohungryhelp"  # Change this!
+jwt = JWTManager(app)
+
 
 def get_db_connection():
     db_path = os.path.abspath('../database/tessera.db')
@@ -115,11 +126,27 @@ def login():
 
             if check_password_hash(password_hash, password):
                 return jsonify({'message': 'Login successful hooray!'}), 200 #THIS IS JSON FORMAT FOR A REASON?
+            
+            #jtoken = {
+            #    "username": username, 
+            #    "password": password, 
+            #    "location": location 
+            #}
+
             else:
                 return jsonify({'error': 'Invalid username or password.'}), 401
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+# Protect a route with jwt_required, which will kick out requests
+# without a valid JWT present.
+@app.route("/protected", methods=["GET"])
+@jwt_required()
+def protected():
+    # Access the identity of the current user with get_jwt_identity
+    current_user = get_jwt_identity()
+    return jsonify(logged_in_as=current_user), 200
     
 # CHANGE USERNAME/PASSWORD ENDPOINT 
 @app.route('/user/password', methods=['PUT']) #created endpoint, PUT because we are changing it !

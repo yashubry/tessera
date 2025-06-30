@@ -2,14 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { Box, Image, Text, VStack, Heading, LinkBox, Button } from '@chakra-ui/react';
 import { Link } from 'react-router-dom';
 
-function EventCard({ id, name, date, location, imageUrl }) {
+function EventCard({ id, name, date, time, location, imageUrl }) {
   const [timeLeft, setTimeLeft] = useState('');
 
   useEffect(() => {
     const updateTimer = () => {
-      const eventDate = new Date(date).getTime();
+      const eventTime = new Date(`${date}T${time}`).getTime();
+      //const eventTime = new Time(time).getTime();
       const now = new Date().getTime();
-      const distance = eventDate - now;
+      const distance = eventTime - now;
 
       if (distance < 0) {
         setTimeLeft('Event has started');
@@ -30,7 +31,7 @@ function EventCard({ id, name, date, location, imageUrl }) {
 
     // Cleanup the interval on component unmount
     return () => clearInterval(timerId);
-  }, [date]);
+  }, [date, time]);
 
   return (
     <LinkBox as="article" w="full" borderWidth="1px" rounded="md" overflow="hidden" boxShadow="md">
@@ -41,9 +42,10 @@ function EventCard({ id, name, date, location, imageUrl }) {
         <VStack align="stretch" p="4">
         <Heading size="md" my="2">{name}</Heading>
           <Text fontSize="sm">Date: {date}</Text>
+          <Text fontSize="sm">Time: {time}</Text>
           <Text fontSize="sm">Location: {location}</Text>
           <Text fontSize="sm" color="red.500">{timeLeft}</Text>
-          <Button colorScheme="blue" mt="4" as={Link} to={`/events/${id}`}>
+          <Button colorScheme="cyan" mt="4" as={Link} to={`/events/${id}`}>
             Buy Tickets!
           </Button>
         </VStack>

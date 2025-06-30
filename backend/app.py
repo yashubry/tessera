@@ -47,6 +47,8 @@ def get_events():
         return jsonify(events_list)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+
 
 @app.route('/user', methods=['POST'])
 def create_user():
@@ -62,14 +64,14 @@ def create_user():
     created_at = datetime.now().isoformat()
 
     user_ip = request.remote_addr
-    location = get_location(user_ip)
+    #location = get_location(user_ip)
 
 
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('INSERT INTO Users (email, username, password_hash, location, created_at) VALUES (?, ?, ?, ?, ?)',
-                (email, username, hashed_password, location, created_at)
+                (email, username, hashed_password, created_at)
             )
             conn.commit()
 
@@ -78,7 +80,6 @@ def create_user():
 
         return jsonify({'message': 'User created successfully', 
                         'user_id': new_user_id['user_id'],
-                        'location': location,
                         'created_time': created_at
                         }), 201
 
@@ -167,4 +168,5 @@ def change_password() :
 
 
 if __name__ == '__main__':
+    print(app.url_map)
     app.run(debug=True)

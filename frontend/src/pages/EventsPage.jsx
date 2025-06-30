@@ -5,12 +5,23 @@ import EventCard from '../components/EventCard';
 function EventsPage() {
   const [events, setEvents] = useState([]);
 
+
   useEffect(() => {
-    fetch('http://localhost:5000/events')
-      .then(response => response.json())
-      .then(setEvents)
-      .catch(error => console.error('Error fetching events:', error));
+  const fetchFutureEvents = async () => {
+    const today = new Date().toISOString().split("T")[0]; // "YYYY-MM-DD"
+
+    try {
+      const response = await fetch(`http://localhost:5000/events?afterDate=${today}`);
+      const data = await response.json();
+      setEvents(data);
+    } catch (error) {
+      console.error('Error fetching events:', error);
+    }
+  };
+
+  fetchFutureEvents();
   }, []);
+
 
   return (
     <Container maxW="container.xl" centerContent>
@@ -21,8 +32,9 @@ function EventsPage() {
             id={event.event_id}
             name={event.name}
             date={event.date}
+            time={event.time}
             location={event.location}
-            imageUrl={'https://i.imgur.com/E5Wjs.jpeg'} 
+            imageUrl={event.image_url} 
           />
         ))}
       </SimpleGrid>

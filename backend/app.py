@@ -3,7 +3,7 @@ import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
 #import bcrypt #apparently this is important for password hashing 
 from geopy.geocoders import Nominatim
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
 import os 
 from flask_cors import CORS
@@ -101,6 +101,7 @@ def create_user():
     
 @app.route('/login', methods=['POST'])
 def login():
+    data = request.get_json()
     username = request.json.get('username')
     password = request.json.get('password')
     
@@ -116,7 +117,7 @@ def login():
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT password_hash FROM Users WHERE username = ?', (username,))
+            cursor.execute('SELECT username, password_hash FROM Users WHERE username = ?', (username,))
             row = cursor.fetchone()
 
             if row is None:  # if nothing in inputted or if it is invalid 
@@ -125,74 +126,67 @@ def login():
             password_hash = row['password_hash']
 
             if check_password_hash(password_hash, password):
-                return jsonify({'message': 'Login successful hooray!'}), 200 #THIS IS JSON FORMAT FOR A REASON?
-            
-            #jtoken = {
-            #    "username": username, 
-            #    "password": password, 
-            #    "location": location 
-            #}
-
+                payload = {   #payload for the JWT access token 
+                    'username': row['username'],
+                    
+                }
+                access_token = create_access_token(identity=payload, expires_delta=timedelta(hours=1))  #this is the access token with 1 hour expiration
+                return jsonify({'message': 'Login successful hooray!', 'access_token': access_token}), 200 #THIS IS JSON FORMAT FOR A REASON?
             else:
                 return jsonify({'error': 'Invalid username or password.'}), 401
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# Protect a route with jwt_required, which will kick out requests
-# without a valid JWT present.
-@app.route("/protected", methods=["GET"])
-@jwt_required()
-def protected():
-    # Access the identity of the current user with get_jwt_identity
-    current_user = get_jwt_identity()
-    return jsonify(logged_in_as=current_user), 200
     
+
 # CHANGE USERNAME/PASSWORD ENDPOINT 
+@jwt_required() #MADE THIS A JWT PROTECTED ROUTE 
 @app.route('/user/password', methods=['PUT']) #created endpoint, PUT because we are changing it !
 def change_password() :
 
-    #first ask for the regular username and password 
-    username = request.json.get('username')
-    password = request.json.get('password')
+    current_identity = get_jwt_identity()
+    if current_identity:
+        #first ask for the regular username and password 
+        username = current_identity['username']
+        password = request.json.get('password')
 
-    new_password = request.json.get('new_password') #then ask for the new password 
+        new_password = request.json.get('new_password') #then ask for the new password 
 
-    if not username or not password or not new_password: 
-        return jsonify({'error': 'All feilds are required.'}), 400
+        if not username or not password or not new_password: 
+            return jsonify({'error': 'All feilds are required.'}), 400
+        
+        try:
+            with get_db_connection() as conn: # we need to connect to the server here 
+                cursor = conn.cursor() 
+                cursor.execute('SELECT password_hash FROM Users WHERE username = ?', (username,))
+                row = cursor.fetchone()
+
+                if row is None:  # if nothing in inputted or if it is invalid 
+                    return jsonify({'error': 'Invalid username or password.'}), 401
+
+                password_hash = row['password_hash']
+
+                if not check_password_hash(password_hash, password):
+                    return jsonify({'error': 'Incorrect current password.'}), 401
+                
+                
+                new_password_hash = generate_password_hash(new_password) 
+
+                # extra: want to make it so that if the new password matched the old password, we get an error message 
+                if check_password_hash(password_hash, new_password):
+                    return jsonify({'error': 'your new password cannot be the same as the current password.'}), 400
+                
+                new_hashed = generate_password_hash(new_password)
+
+                cursor.execute('UPDATE Users SET password_hash = ? WHERE username = ?', (new_password_hash, username))
+
+                conn.commit()
+
+            return jsonify({'message': 'Password updated successfully.'}), 200
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
     
-    try:
-        with get_db_connection() as conn: # we need to connect to the server here 
-            cursor = conn.cursor() 
-            cursor.execute('SELECT password_hash FROM Users WHERE username = ?', (username,))
-            row = cursor.fetchone()
-
-            if row is None:  # if nothing in inputted or if it is invalid 
-                return jsonify({'error': 'Invalid username or password.'}), 401
-
-            password_hash = row['password_hash']
-
-            if not check_password_hash(password_hash, password):
-                return jsonify({'error': 'Incorrect current password.'}), 401
-            
-            
-            new_password_hash = generate_password_hash(new_password) 
-
-            # extra: want to make it so that if the new password matched the old password, we get an error message 
-            if check_password_hash(password_hash, new_password):
-                return jsonify({'error': 'your new password cannot be the same as the current password.'}), 400
-            
-            new_hashed = generate_password_hash(new_password)
-
-            cursor.execute('UPDATE Users SET password_hash = ? WHERE user_id = ?', (new_password_hash, username))
-            conn.commit()
-
-        return jsonify({'message': 'Password updated successfully.'}), 200
-
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    
-
 
 if __name__ == '__main__':
     print(app.url_map)

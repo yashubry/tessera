@@ -3,8 +3,10 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 
+
 import {
   Button,
+  ButtonGroup,
   Checkbox,
   Flex,
   Text,
@@ -21,10 +23,12 @@ export default function SplitScreen() {
     const [username, setUsername] = useState('')
     const [password, setPassword] = useState('')
     const [error, setError] = useState('')
+    const[loading, setLoading] = useState(false)
     const navigate = useNavigate()
 
     const handleLogin = async () => {
     setError('')
+    setLoading(true)
 
     if (!username || !password) {
         setError('Username and password are required.');
@@ -53,7 +57,7 @@ export default function SplitScreen() {
     <Stack minH={'100vh'} direction={{ base: 'column', md: 'row' }}>
       <Flex p={8} flex={1} align={'center'} justify={'center'}>
         <Stack spacing={4} w={'full'} maxW={'md'}>
-          <Heading fontSize={'8xl'}>tune in!</Heading>
+          <Heading fontSize={'8xl'}>sign in!</Heading>
           {error && (
             <Text color="red.500" fontWeight="bold">
               {error}
@@ -81,10 +85,16 @@ export default function SplitScreen() {
               direction={{ base: 'column', sm: 'row' }}
               align={'start'}
               justify={'space-between'}>
-              {/*<Checkbox>Remember me</Checkbox>
-              <Text color={'blue.500'}>Forgot password?</Text> */} {/*uncomment when you have a plan for these!*/}
+              {/*
+              <Text color={'blue.500'}>New User? Sign Up!?</Text> */} {/*uncomment when you have a plan for these!*/}
             </Stack>
-            <Button colorScheme={'blue'} variant={'solid'} onClick={handleLogin}>
+                <Button 
+                    
+                    colorScheme={'blue'} 
+                    variant={'solid'} 
+                    onClick={handleLogin} 
+                    isLoading={loading}
+                >
               sign in
             </Button>
           </Stack>

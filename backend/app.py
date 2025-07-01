@@ -128,7 +128,6 @@ def login():
             if check_password_hash(password_hash, password):
                 payload = {   #payload for the JWT access token 
                     'username': row['username'],
-                    
                 }
                 access_token = create_access_token(identity=payload, expires_delta=timedelta(hours=1))  #this is the access token with 1 hour expiration
                 return jsonify({'message': 'Login successful hooray!', 'access_token': access_token}), 200 #THIS IS JSON FORMAT FOR A REASON?

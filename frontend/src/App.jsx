@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Navbar from './components/Navbar';
 import EventsPage from './pages/EventsPage';
 import EventDetail from './pages/EventDetail'; 
+import Login from './pages/login';
 
 import { ColorModeProvider } from "./components/ui/color-mode";
 
@@ -14,8 +15,9 @@ function App() {
         <Router>
           <Navbar />
           <Routes>
+            <Route path="/login" element={<Login />} />
             <Route path="/events" element={<EventsPage />} />
-            <Route path="/" element={<Navigate to="/events" replace />} />
+            <Route path="/" element={<Navigate to="/login" replace />} />
             <Route path="/events/:id" element={<EventDetail />} />
           </Routes>
         </Router>

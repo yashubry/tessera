@@ -102,8 +102,8 @@ def create_user():
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
-    username = request.json.get('username')
-    password = request.json.get('password')
+    username = data.get('username')
+    password = data.get('password')
     
 
     #first we have to make sure all the feilds have been entered in 

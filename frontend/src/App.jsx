@@ -4,6 +4,7 @@ import Navbar from './components/Navbar';
 import EventsPage from './pages/EventsPage';
 import EventDetail from './pages/EventDetail'; 
 import Login from './pages/login';
+import Registration from './pages/registration';
 
 import { ColorModeProvider } from "./components/ui/color-mode";
 
@@ -16,6 +17,7 @@ function App() {
           <Navbar />
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Registration />} />
             <Route path="/events" element={<EventsPage />} />
             <Route path="/" element={<Navigate to="/login" replace />} />
             <Route path="/events/:id" element={<EventDetail />} />

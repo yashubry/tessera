@@ -185,6 +185,33 @@ def change_password() :
             return jsonify({'message': 'Password updated successfully.'}), 200
         except Exception as e:
             return jsonify({'error': str(e)}), 500
+        
+#EDIT USER PROFILE API ENDPOINT 
+@jwt_required()  #this is a protected route 
+def update_profile() : 
+    identity = get_jwt_identity()
+    user_id = identity['user_id']
+    
+    data = request.get_json()
+    new_email = data.get('email')
+    new_username = data.get('username')
+    #new_location = data.get('location')
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                UPDATE Users SET email = ?, username = ?
+                WHERE user_id = ?
+                ''',
+                (new_email, new_username, user_id)
+            )
+            conn.commit()
+        return jsonify({'message': 'Profile updated successfully'}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
     
 
 if __name__ == '__main__':

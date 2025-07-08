@@ -81,8 +81,8 @@ def create_user():
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('INSERT INTO Users (email, username, password_hash, location, created_at) VALUES (?, ?, ?, ?, ?)',
-                (email, username, hashed_password, created_at)
+            cursor.execute('INSERT INTO Users (email, username, password_hash) VALUES (?, ?, ?)',
+                (email, username, hashed_password)
             )
             conn.commit()
 

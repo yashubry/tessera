@@ -18,7 +18,7 @@ function App() {
           <Navbar />
           <Routes>
             <Route path="/login" element={<Login />} />
-            <Route path="/profile" element={<Profile />} />
+            <Route path="/user/profile" element={<Profile />} />
             <Route path="/register" element={<Registration />} />
             <Route path="/events" element={<EventsPage />} />
             <Route path="/" element={<Navigate to="/login" replace />} />

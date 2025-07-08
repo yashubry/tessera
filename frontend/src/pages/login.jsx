@@ -2,12 +2,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
-
-
 import {
   Button,
-  ButtonGroup,
-  Checkbox,
   Flex,
   Text,
   FormControl,
@@ -18,95 +14,91 @@ import {
   Image,
 } from '@chakra-ui/react'
 
-export default function SplitScreen() {
+export default function Login() {
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const navigate = useNavigate()
 
-    const [username, setUsername] = useState('')
-    const [password, setPassword] = useState('')
-    const [error, setError] = useState('')
-    const[loading, setLoading] = useState(false)
-    const navigate = useNavigate()
-
-    const handleLogin = async () => {
+  const handleLogin = async () => {
     setError('')
     setLoading(true)
 
     if (!username || !password) {
-        setError('Username and password are required.');
-        return;
+      setError('Username and password are required.')
+      setLoading(false)
+      return
     }
 
     try {
-        const res = await axios.post('http://localhost:5000/login', {
-            username, 
-            password
-    })
+      const res = await axios.post('http://localhost:5000/login', {
+        username,
+        password,
+      })
 
-    const token = res.data.access_token
-    localStorage.setItem('token', token)
-    navigate('/')
+      const token = res.data.access_token
+      localStorage.setItem('token', token)
+
+      navigate('/events') // change to your desired route
     } catch (err) {
-    if (err.response?.status === 401) {
+      if (err.response?.status === 401) {
         setError('Invalid username or password.')
-    } else {
+      } else {
         setError('Something went wrong. Please try again.')
-    }
+      }
+    } finally {
+      setLoading(false)
     }
   }
 
   return (
-    <Stack minH={'100vh'} direction={{ base: 'column', md: 'row' }}>
-      <Flex p={8} flex={1} align={'center'} justify={'center'}>
-        <Stack spacing={4} w={'full'} maxW={'md'}>
-          <Heading fontSize={'8xl'}>sign in!</Heading>
+    <Stack minH="100vh" direction={{ base: 'column', md: 'row' }}>
+      <Flex p={8} flex={1} align="center" justify="center">
+        <Stack spacing={4} w="full" maxW="md">
+          <Heading fontSize="5xl">Sign in</Heading>
           {error && (
-            <Text color="red.500" fontWeight="bold">
+            <Text color="red.500" fontWeight="medium">
               {error}
             </Text>
           )}
 
-          <FormControl id="username">
-            <FormLabel>username</FormLabel>
-            <Input 
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)} 
+          <FormControl id="username" isRequired>
+            <FormLabel>Username</FormLabel>
+            <Input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="username"
             />
           </FormControl>
-          <FormControl id="password">
-            <FormLabel>password</FormLabel>
-            <Input 
-                type="text"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)} 
+
+          <FormControl id="password" isRequired>
+            <FormLabel>Password</FormLabel>
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
             />
           </FormControl>
-          <Stack spacing={6}>
-            <Stack
-              direction={{ base: 'column', sm: 'row' }}
-              align={'start'}
-              justify={'space-between'}>
-              {/*
-              <Text color={'blue.500'}>New User? Sign Up!?</Text> */} {/*uncomment when you have a plan for these!*/}
-            </Stack>
-                <Button 
-                    
-                    colorScheme={'blue'} 
-                    variant={'solid'} 
-                    onClick={handleLogin} 
-                    isLoading={loading}
-                >
-              sign in
-            </Button>
-          </Stack>
+
+          <Button
+            colorScheme="blue"
+            variant="solid"
+            onClick={handleLogin}
+            isLoading={loading}
+          >
+            Sign In
+          </Button>
         </Stack>
       </Flex>
+
       <Flex flex={1}>
         <Image
-          alt={'Login Image'}
-          objectFit={'cover'}
-          src={
-            'https://i.imgur.com/taseBi0.jpeg'
-          }
+          alt="Login Image"
+          objectFit="cover"
+          src="https://i.imgur.com/taseBi0.jpeg"
         />
       </Flex>
     </Stack>

@@ -16,7 +16,7 @@ from flask_jwt_extended import JWTManager
 
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type", "Authorization"])
 
 # Setup the Flask-JWT-Extended extension
 app.config["JWT_SECRET_KEY"] = "imsohungryhelp"  # Change this!
@@ -104,44 +104,44 @@ def login():
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
-    
 
-    #first we have to make sure all the feilds have been entered in 
-    if not username or not password: 
-        return jsonify({'error': 'All feilds are required.'}), 400
-    #next, we need to check if the login is correct, then send a json message, 200
-
-    #conn = get_db_connection()
-    #cursor = conn.cursor()  ADD THIS WITHIN THE TRY BLOCK 
+    if not username or not password:
+        return jsonify({'error': 'All fields are required.'}), 400
 
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT username, password_hash FROM Users WHERE username = ?', (username,))
+            # Now selecting user_id too
+            cursor.execute('SELECT user_id, username, password_hash FROM Users WHERE username = ?', (username,))
             row = cursor.fetchone()
 
-            if row is None:  # if nothing in inputted or if it is invalid 
+            if row is None:
                 return jsonify({'error': 'Invalid username or password.'}), 401
 
-            password_hash = row['password_hash']
+            if check_password_hash(row['password_hash'], password):
+                # ✅ Set the identity to be the user's ID
+                access_token = create_access_token(
+                    identity=str(row['user_id']),
+                    expires_delta=timedelta(hours=1)
+                )
 
-            if check_password_hash(password_hash, password):
-                payload = {   #payload for the JWT access token 
-                    'username': row['username'],
-                }
-                access_token = create_access_token(identity=payload, expires_delta=timedelta(hours=1))  #this is the access token with 1 hour expiration
-                return jsonify({'message': 'Login successful hooray!', 'access_token': access_token}), 200 #THIS IS JSON FORMAT FOR A REASON?
+                return jsonify({
+                    'message': 'Login successful hooray!',
+                    'access_token': access_token
+                }), 200
             else:
                 return jsonify({'error': 'Invalid username or password.'}), 401
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
     
 
 # CHANGE USERNAME/PASSWORD ENDPOINT 
-@jwt_required() #MADE THIS A JWT PROTECTED ROUTE 
+ #MADE THIS A JWT PROTECTED ROUTE 
 @app.route('/user/password', methods=['PUT']) #created endpoint, PUT because we are changing it !
+@jwt_required()
 def change_password() :
 
     current_identity = get_jwt_identity()
@@ -186,32 +186,55 @@ def change_password() :
         except Exception as e:
             return jsonify({'error': str(e)}), 500
         
-#EDIT USER PROFILE API ENDPOINT 
-@jwt_required()  #this is a protected route 
-def update_profile() : 
-    identity = get_jwt_identity()
-    user_id = identity['user_id']
-    
-    data = request.get_json()
-    new_email = data.get('email')
-    new_username = data.get('username')
-    #new_location = data.get('location')
+@app.route('/user/profile', methods=['PUT'])
+@jwt_required()
+def update_profile():
+    user_id = get_jwt_identity()
+    data = request.get_json() or {}
+
+    username = data.get('username')
+    email = data.get('email')
+    phone = data.get('phone')
+    profile_pic_url = data.get('profile_pic_url')
 
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                '''
-                UPDATE Users SET email = ?, username = ?
-                WHERE user_id = ?
-                ''',
-                (new_email, new_username, user_id)
-            )
-            conn.commit()
-        return jsonify({'message': 'Profile updated successfully'}), 200
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
+        cursor.execute(
+            '''
+            UPDATE Users
+            SET username = COALESCE(?, username),
+                email = COALESCE(?, email)
+            WHERE user_id = ?
+            ''',
+            (username, email, user_id)
+        )
+        conn.commit()
+        conn.close()
+
+        return jsonify({"msg": "Profile updated successfully"})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
+
+
+
+    
+@app.route('/user/profile', methods=['GET'])
+@jwt_required()
+def get_profile():
+    user_id = get_jwt_identity()
+    conn = get_db_connection()
+    user = conn.execute('SELECT username, email FROM Users WHERE user_id = ?', (user_id,)).fetchone()
+    conn.close()
+
+    if user is None:
+        return jsonify({"error": "User not found"}), 404
+
+    return jsonify({
+        "username": user["username"],
+        "email": user["email"]
+    })
     
 
 if __name__ == '__main__':

@@ -34,10 +34,10 @@ function EventCard({ id, name, date, time, location, imageUrl }) {
   }, [date, time]);
 
   return (
-    <LinkBox as="article" w="full" borderWidth="1px" rounded="md" overflow="hidden" boxShadow="md">
+    <LinkBox as="article" w="full" overflow="hidden" boxShadow="md">
       <VStack align="stretch">
         {imageUrl && (
-          <Image borderRadius="md" src={imageUrl} alt={`Image for ${name}`} objectFit="cover" width="full" />
+          <Image  src={imageUrl} alt={`Image for ${name}`} objectFit="cover" width="full" />
         )}
         <VStack align="stretch" p="4">
         <Heading size="md" my="2">{name}</Heading>

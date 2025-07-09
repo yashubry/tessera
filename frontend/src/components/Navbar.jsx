@@ -5,6 +5,8 @@ import { ColorModeButton } from "./ui/color-mode"; // Dark mode toggle
 import { useNavigate } from 'react-router-dom';  // <-- you forgot this import!
 import { MdHomeFilled } from "react-icons/md";
 import { LuPartyPopper } from "react-icons/lu";
+import { MdOutlineStar } from "react-icons/md";
+
 
 
 function Navbar() {
@@ -16,9 +18,9 @@ function Navbar() {
   };
 
   return (
-    <Flex bg="cyan.900" color="white" p="4" alignItems="center" fontStyle="italic">
+    <Flex bg="cyan.900" color="white" p="4" alignItems="center" fontStyle="italic" >
       <Box p="2">
-        <Text fontSize="5xl" fontWeight="black">TESSERA</Text>
+        <Text fontSize="5xl" rightIcon={<MdOutlineStar />} fontWeight="black">TESSERA.</Text>
       </Box>
 
       <Spacer />
@@ -33,7 +35,7 @@ function Navbar() {
           fontStyle="italic"
           onClick={() => navigate('/l')}  
         >
-          <Text color="cyan.200" fontSize="xl" fontWeight="black">home</Text>
+          <Text color="white" fontSize="xl" fontWeight="black">home</Text>
         </Button>
 
         <Button
@@ -43,7 +45,7 @@ function Navbar() {
           onClick={() => navigate('/events')}  
           leftIcon={<LuPartyPopper />}
         >
-          <Text color="cyan.200" fontSize="xl" fontWeight="black">events</Text>
+          <Text color="white" fontSize="xl" fontWeight="black">events</Text>
         </Button>
 
         <Button
@@ -53,7 +55,7 @@ function Navbar() {
           fontStyle="italic"
           onClick={() => navigate('/user/profile')}  // example: navigate to profile
         >
-          <Text color="cyan.200" fontSize="xl" fontWeight="black">profile</Text>
+          <Text color="white" fontSize="xl" fontWeight="black">profile</Text>
         </Button>
 
         <Button

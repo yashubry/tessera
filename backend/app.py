@@ -235,7 +235,7 @@ def get_profile():
         "username": user["username"],
         "email": user["email"]
     })
-    
+
 
 if __name__ == '__main__':
     print(app.url_map)

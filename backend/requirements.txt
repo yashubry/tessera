@@ -4,3 +4,4 @@ flask-jwt-extended
 werkzeug
 stripe
 python-dotenv
+geopy

@@ -24,8 +24,11 @@ const rows = [
   ]
 ];
 
+
+
 function EventDetail() {
   const { id } = useParams(); 
+  
 
   return (
     <div>

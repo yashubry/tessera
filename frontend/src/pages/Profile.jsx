@@ -1,254 +1,284 @@
-'use client'
-
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useMemo, useState } from "react";
 import {
+  Avatar,
+  Box,
   Button,
-  Flex,
+  Container,
+  Divider,
   FormControl,
   FormLabel,
-  Heading,
-  Input,
-  Stack,
-  useColorModeValue,
   HStack,
-  Avatar,
-  AvatarBadge,
+  Heading,
   IconButton,
-  Center,
-  Spinner,
-  Text,
+  Input,
+  InputGroup,
+  InputRightElement,
+  Progress,
+  Skeleton,
+  SkeletonText,
+  Stack,
+  Tooltip,
+  useColorModeValue,
   useToast,
-} from '@chakra-ui/react'
-import { SmallCloseIcon } from '@chakra-ui/icons'
+  VStack,
+  Text,
+} from "@chakra-ui/react";
+import { ViewIcon, ViewOffIcon } from "@chakra-ui/icons";
+import { FiX } from "react-icons/fi";
 
-export default function UserProfileEdit() {
-  const [username, setUsername] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [avatarUrl, setAvatarUrl] = useState(
-    'https://previews.123rf.com/images/diter/diter1803/diter180300062/97587698-smiling-rockstar-in-white-vintage-costume-in-studio.jpg'
-  )
-  const [loading, setLoading] = useState(true)
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
-  const toast = useToast()
+const API = "http://localhost:5000";
+const getToken = () => localStorage.getItem("token") || "";
 
- useEffect(() => {
-  const token = localStorage.getItem('token')
-  console.log('TOKEN IN PROFILE EFFECT:', token)
+const emailValid = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+const passwordScore = (pw) => {
+  if (!pw) return 0;
+  let s = 0;
+  if (pw.length >= 8) s += 30;
+  if (/[A-Z]/.test(pw)) s += 20;
+  if (/[a-z]/.test(pw)) s += 20;
+  if (/\d/.test(pw)) s += 15;
+  if (/[^A-Za-z0-9]/.test(pw)) s += 15;
+  return Math.min(s, 100);
+};
 
-  if (!token) {
-    console.log('❌ No token found')
-    setError('You must be logged in.')
-    setLoading(false)
-    return
-  }
+export default function Profile() {
+  const toast = useToast();
+  const cardBg = useColorModeValue("white", "gray.800");
+  const borderCol = useColorModeValue("gray.200", "gray.700");
 
-  console.log('✅ Making fetch call with token...')
+  // profile state
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
 
-  fetch('http://localhost:5000/user/profile', {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-    mode: 'cors',
-  })
-    .then(async (res) => {
-      if (!res.ok) {
-        const errorData = await res.json()
-        throw new Error(errorData.error || 'Failed to fetch profile')
+  // optional extras (only persist if your backend supports them)
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [phone, setPhone] = useState("");
+
+  // password change state
+  const [currentPw, setCurrentPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [changingPw, setChangingPw] = useState(false);
+  const newPwStrength = useMemo(() => passwordScore(newPw), [newPw]);
+
+  // load profile
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API}/user/profile`, {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        if (!res.ok) throw new Error(`Load failed (${res.status})`);
+        const data = await res.json();
+        if (cancelled) return;
+        setUsername(data.username || "");
+        setEmail(data.email || "");
+        setPhone(data.phone || "");
+        setAvatarUrl(data.profile_pic_url || "");
+      } catch (e) {
+        toast({ status: "error", title: "Couldn't load profile", description: String(e) });
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      return res.json()
-    })
-    .then(data => {
-      console.log('✅ Fetched profile data:', data)
-      setUsername(data.username || '')
-      setEmail(data.email || '')
-      // if you have profile pic URL from backend, set it here:
-      if (data.profile_pic_url) {
-        setAvatarUrl(data.profile_pic_url)
-      }
-      setLoading(false)
-    })
-    .catch(err => {
-      console.error('❌ Fetch error:', err)
-      setError(err.message)
-      setLoading(false)
-    })
-}, [])
+    })();
+    return () => { cancelled = true; };
+  }, [toast]);
 
-
-  const handleSubmit = () => {
-    setSubmitting(true)
-    setError('')
-    const token = localStorage.getItem('token')
-    if (!token) {
-      setError('You must be logged in to update your profile.')
-      setSubmitting(false)
-      return
+  // save profile
+  const onSave = async () => {
+    if (!username.trim()) {
+      toast({ status: "warning", title: "Username is required" });
+      return;
     }
+    if (!emailValid(email)) {
+      toast({ status: "warning", title: "Enter a valid email" });
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch(`${API}/user/profile`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getToken()}`,
+        },
+        body: JSON.stringify({
+          username: username.trim(),
+          email: email.trim(),
+          phone: phone || null,
+          profile_pic_url: avatarUrl || null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Save failed (${res.status})`);
+      }
+      toast({ status: "success", title: "Profile updated" });
+    } catch (e) {
+      toast({ status: "error", title: "Update failed", description: String(e) });
+    } finally {
+      setSaving(false);
+    }
+  };
 
-    fetch('http://localhost:5000/user/profile', {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        username,
-        email,
-        password: password || undefined, // optional
-        profile_pic_url: avatarUrl,
-      }),
-    })
-      .then(async (res) => {
-        const data = await res.json()
-        if (!res.ok) {
-          throw new Error(data.error || 'Failed to update profile')
-        }
-        toast({
-          title: 'Profile updated.',
-          description: 'Your profile was successfully updated.',
-          status: 'success',
-          duration: 3000,
-          isClosable: true,
-        })
-        setPassword('')
-      })
-      .catch((err) => {
-        setError(err.message)
-      })
-      .finally(() => {
-        setSubmitting(false)
-      })
-  }
-
-  const handleAvatarRemove = () => {
-    setAvatarUrl('')
-  }
+  // change password
+  const onChangePassword = async () => {
+    if (!currentPw || !newPw) {
+      toast({ status: "warning", title: "Enter current and new password" });
+      return;
+    }
+    if (newPwStrength < 60) {
+      toast({ status: "info", title: "Choose a stronger password (score ≥ 60)" });
+      return;
+    }
+    setChangingPw(true);
+    try {
+      const res = await fetch(`${API}/user/password`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getToken()}`,
+        },
+        body: JSON.stringify({ password: currentPw, new_password: newPw }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `Change failed (${res.status})`);
+      setCurrentPw("");
+      setNewPw("");
+      toast({ status: "success", title: "Password updated" });
+    } catch (e) {
+      toast({ status: "error", title: "Couldn't change password", description: String(e) });
+    } finally {
+      setChangingPw(false);
+    }
+  };
 
   if (loading) {
     return (
-      <Flex minH="100vh" align="center" justify="center">
-        <Spinner size="xl" />
-      </Flex>
-    )
-  }
-
-  if (error) {
-    return (
-      <Flex minH="100vh" align="center" justify="center" bg={useColorModeValue('gray.50', 'gray.800')}>
-        <Text color="red.500" fontSize="lg">
-          {error}
-        </Text>
-      </Flex>
-    )
+      <Container maxW="lg" py={12}>
+        <Box borderWidth="1px" borderColor={borderCol} rounded="2xl" p={8} bg={cardBg}>
+          <Skeleton height="28px" mb={6} />
+          <HStack spacing={4} mb={6}>
+            <Skeleton boxSize="72px" rounded="full" />
+            <Skeleton height="40px" flex="1" />
+          </HStack>
+          <SkeletonText noOfLines={6} spacing="4" />
+        </Box>
+      </Container>
+    );
   }
 
   return (
-    <Flex minH={'100vh'} align={'center'} justify={'center'} bg={useColorModeValue('gray.50', 'gray.800')}>
-      <Stack
-        spacing={4}
-        w={'full'}
-        maxW={'md'}
-        bg={useColorModeValue('white', 'gray.700')}
-        rounded={'xl'}
-        boxShadow={'lg'}
-        p={6}
-        my={12}>
-        <Heading lineHeight={1.1} fontSize={{ base: '2xl', sm: '3xl' }}>
-          User Profile Edit
-        </Heading>
+    <Container maxW="lg" py={{ base: 8, md: 12 }}>
+      <Box borderWidth="1px" borderColor={borderCol} rounded="2xl" p={{ base: 6, md: 8 }} bg={cardBg} shadow="md">
+        <Heading size="lg" mb={6}>Account</Heading>
 
-        <FormControl id="userIcon" mb={4}>
+        {/* Avatar + URL */}
+        <VStack align="stretch" spacing={3} mb={6}>
           <FormLabel>User Icon</FormLabel>
-          <Stack direction={['column', 'row']} spacing={6}>
-            <Center>
-              <Avatar size="xl" src={avatarUrl}>
-                {avatarUrl && (
-                  <AvatarBadge
-                    as={IconButton}
-                    size="sm"
-                    rounded="full"
-                    top="-10px"
+          <HStack spacing={4} align="center">
+            <Box position="relative">
+              <Avatar size="xl" name={username || "User"} src={avatarUrl || undefined} />
+              {avatarUrl && (
+                <Tooltip label="Clear image">
+                  <IconButton
+                    icon={<FiX />}
+                    size="xs"
+                    aria-label="clear"
                     colorScheme="red"
-                    aria-label="remove Image"
-                    icon={<SmallCloseIcon />}
-                    onClick={handleAvatarRemove}
+                    position="absolute"
+                    top="-6px"
+                    right="-6px"
+                    onClick={() => setAvatarUrl("")}
                   />
-                )}
-              </Avatar>
-            </Center>
-            <Center w="full">
-              {/* For now, just allow pasting a URL */}
-              <Input
-                placeholder="Image URL"
-                value={avatarUrl}
-                onChange={(e) => setAvatarUrl(e.target.value)}
-              />
-            </Center>
-          </Stack>
-        </FormControl>
+                </Tooltip>
+              )}
+            </Box>
+            <Input
+              placeholder="https://your-cdn.com/avatar.png"
+              value={avatarUrl}
+              onChange={(e) => setAvatarUrl(e.target.value)}
+            />
+          </HStack>
+        </VStack>
 
-        <FormControl id="username" isRequired>
-          <FormLabel>User name</FormLabel>
-          <Input
-            placeholder="UserName"
-            _placeholder={{ color: 'gray.500' }}
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-          />
-        </FormControl>
+        {/* Profile form */}
+        <Stack spacing={4}>
+          <FormControl isRequired>
+            <FormLabel>User name</FormLabel>
+            <Input value={username} onChange={(e) => setUsername(e.target.value)} />
+          </FormControl>
 
-        <FormControl id="email" isRequired>
-          <FormLabel>Email address</FormLabel>
-          <Input
-            placeholder="your-email@example.com"
-            _placeholder={{ color: 'gray.500' }}
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </FormControl>
+          <FormControl isRequired isInvalid={email.length > 0 && !emailValid(email)}>
+            <FormLabel>Email address</FormLabel>
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </FormControl>
 
-        <FormControl id="password">
-          <FormLabel>Password (leave blank to keep current)</FormLabel>
-          <Input
-            placeholder="New password"
-            _placeholder={{ color: 'gray.500' }}
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </FormControl>
+          {/* optional */}
+          <FormControl>
+            <FormLabel>Phone (optional)</FormLabel>
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+          </FormControl>
 
-        <Stack spacing={6} direction={['column', 'row']}>
-          <Button
-            bg={'red.400'}
-            color={'white'}
-            w="full"
-            _hover={{
-              bg: 'red.500',
-            }}
-            onClick={() => {
-              // Reset form or redirect - here just reload page
-              window.location.reload()
-            }}>
-            Cancel
-          </Button>
-          <Button
-            bg={'blue.400'}
-            color={'white'}
-            w="full"
-            isLoading={submitting}
-            _hover={{
-              bg: 'blue.500',
-            }}
-            onClick={handleSubmit}>
-            Submit
-          </Button>
+          <HStack pt={2}>
+            <Button onClick={() => window.history.back()} variant="outline">Cancel</Button>
+            <Button onClick={onSave} colorScheme="blue" isLoading={saving}>Save changes</Button>
+          </HStack>
         </Stack>
-      </Stack>
-    </Flex>
-  )
+
+        <Divider my={8} />
+
+        {/* Password section */}
+        <Heading size="md" mb={4}>Security</Heading>
+        <Stack spacing={4}>
+          <FormControl>
+            <FormLabel>Current password</FormLabel>
+            <InputGroup>
+              <Input
+                type={showPw ? "text" : "password"}
+                value={currentPw}
+                onChange={(e) => setCurrentPw(e.target.value)}
+                placeholder="••••••••"
+              />
+              <InputRightElement>
+                <IconButton
+                  size="sm"
+                  variant="ghost"
+                  aria-label={showPw ? "Hide" : "Show"}
+                  icon={showPw ? <ViewOffIcon /> : <ViewIcon />}
+                  onClick={() => setShowPw((v) => !v)}
+                />
+              </InputRightElement>
+            </InputGroup>
+          </FormControl>
+
+          <FormControl>
+            <FormLabel>New password</FormLabel>
+            <Input
+              type={showPw ? "text" : "password"}
+              value={newPw}
+              onChange={(e) => setNewPw(e.target.value)}
+              placeholder="At least 8 characters"
+            />
+            <HStack mt={2} spacing={3} align="center">
+              <Progress value={newPwStrength} flex="1" borderRadius="md" />
+              <Text fontSize="sm" w="70px" textAlign="right">
+                {newPwStrength >= 80 ? "Strong" : newPwStrength >= 60 ? "Good" : "Weak"}
+              </Text>
+            </HStack>
+          </FormControl>
+
+          <HStack>
+            <Button variant="outline" onClick={() => { setCurrentPw(""); setNewPw(""); }}>Reset</Button>
+            <Button colorScheme="purple" onClick={onChangePassword} isLoading={changingPw}>
+              Change password
+            </Button>
+          </HStack>
+        </Stack>
+      </Box>
+    </Container>
+  );
 }

@@ -39,7 +39,7 @@ export default function Login() {
       })
 
       const token = res.data.access_token
-      localStorage.setItem('token', token)
+      localStorage.setItem('access_token', res.data.access_token);
 
       navigate('/events') // change to your desired route
     } catch (err) {

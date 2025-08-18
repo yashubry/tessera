@@ -236,96 +236,66 @@ def get_profile():
         "email": user["email"]
     })
 
-# inventory info PUBLIC 
+# === Inventory – no reserved_until / reserved_by_user_id =====================
+
+# List tickets (PUBLIC)
 @app.route('/events/<int:event_id>/tickets', methods=['GET'])
 def list_tickets(event_id):
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-
-        # treat expired reservations as available on read
-        now_iso = iso(utc_now())
         cur.execute("""
-          SELECT
-            t.row_name,
-            t.seat_number,
-            CASE
-              WHEN t.status='RESERVED' AND (t.reserved_until IS NULL OR t.reserved_until < ?) THEN 'AVAILABLE'
-              ELSE t.status
-            END AS status,
-            p.base_price
+          SELECT t.row_name, t.seat_number, t.status, p.base_price
           FROM Tickets t
           JOIN PriceCodes p ON t.price_code_id = p.price_code_id
           WHERE t.event_id = ?
           ORDER BY t.row_name, t.seat_number
-        """, (now_iso, event_id))
-
+        """, (event_id,))
         rows = [dict(r) for r in cur.fetchall()]
         conn.close()
         return jsonify(rows), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-#reserve seets 
-RESERVE_MINUTES = 10
 
+# Reserve seats (JWT)
 @app.route('/events/<int:event_id>/tickets/reserve', methods=['POST'])
 @jwt_required()
 def reserve(event_id):
-    user_id = int(get_jwt_identity())
-    seats = request.json.get('seats') or []  # [{row:"A", seat:5}, ...]
-
+    seats = request.json.get('seats') or []   # [{row:"A", seat:1}, ...]
     if not seats:
         return jsonify({"error": "No seats provided"}), 400
-
-    expires_at = iso(utc_now() + timedelta(minutes=RESERVE_MINUTES))
-    now_iso = iso(utc_now())
 
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-
-        # START a write transaction to avoid races
         cur.execute("BEGIN IMMEDIATE")
 
-        # Check + update each seat only if it's currently available or the reservation is expired
         failed = []
         for s in seats:
             row, seat = s['row'], int(s['seat'])
-
-            # Verify seat is not SOLD and is AVAILABLE or RESERVED but expired
+            # must be AVAILABLE
             cur.execute("""
-              SELECT status, reserved_until, reserved_by_user_id
-              FROM Tickets
-              WHERE event_id=? AND row_name=? AND seat_number=? 
+              SELECT status FROM Tickets
+              WHERE event_id=? AND row_name=? AND seat_number=?
             """, (event_id, row, seat))
-            rec = cur.fetchone()
-            if not rec or rec['status'] == 'SOLD':
-                failed.append(f"{row}{seat}")
-                continue
-
-            is_expired = (rec['status'] == 'RESERVED' and (rec['reserved_until'] is None or rec['reserved_until'] < now_iso))
-            can_take = rec['status'] == 'AVAILABLE' or is_expired or rec['reserved_by_user_id'] == user_id
-
-            if not can_take:
+            r = cur.fetchone()
+            if not r or r['status'] != 'AVAILABLE':
                 failed.append(f"{row}{seat}")
                 continue
 
             cur.execute("""
               UPDATE Tickets
-              SET status='RESERVED',
-                  reserved_by_user_id=?,
-                  reserved_until=?
-              WHERE event_id=? AND row_name=? AND seat_number=? 
-            """, (user_id, expires_at, event_id, row, seat))
+              SET status='RESERVED'
+              WHERE event_id=? AND row_name=? AND seat_number=? AND status='AVAILABLE'
+            """, (event_id, row, seat))
 
         if failed:
             conn.rollback()
             return jsonify({"error": "Some seats unavailable", "seats": failed}), 409
 
         conn.commit()
-        return jsonify({"message": "Reserved", "expires_at": expires_at}), 200
-
+        return jsonify({"message": "Reserved"}), 200
     except Exception as e:
         try: conn.rollback()
         except: pass
@@ -333,13 +303,12 @@ def reserve(event_id):
     finally:
         conn.close()
 
-#unreserve seats 
+
+# Unreserve seats (JWT)
 @app.route('/events/<int:event_id>/tickets/unreserve', methods=['POST'])
 @jwt_required()
 def unreserve(event_id):
-    user_id = int(get_jwt_identity())
     seats = request.json.get('seats') or []
-
     if not seats:
         return jsonify({"error": "No seats provided"}), 400
 
@@ -350,16 +319,14 @@ def unreserve(event_id):
 
         for s in seats:
             row, seat = s['row'], int(s['seat'])
-            # Only the user who reserved it can unreserve
             cur.execute("""
               UPDATE Tickets
-              SET status='AVAILABLE', reserved_by_user_id=NULL, reserved_until=NULL
-              WHERE event_id=? AND row_name=? AND seat_number=? AND status='RESERVED' AND reserved_by_user_id=?
-            """, (event_id, row, seat, user_id))
+              SET status='AVAILABLE'
+              WHERE event_id=? AND row_name=? AND seat_number=? AND status='RESERVED'
+            """, (event_id, row, seat))
 
         conn.commit()
         return jsonify({"message": "Unreserved"}), 200
-
     except Exception as e:
         try: conn.rollback()
         except: pass
@@ -367,55 +334,47 @@ def unreserve(event_id):
     finally:
         conn.close()
 
-#purchase seats 
-def gen_barcode(event_id, row, seat):
-    return f"{event_id}-{row}{seat}-{int(utc_now().timestamp())}"
 
+# Purchase seats (JWT)
 @app.route('/events/<int:event_id>/tickets/purchase', methods=['POST'])
 @jwt_required()
 def purchase(event_id):
     user_id = int(get_jwt_identity())
-    seats = request.json.get('seats') or []  # [{row:"A", seat:5}, ...]
-
+    seats = request.json.get('seats') or []   # [{row:"A", seat:1}, ...]
     if not seats:
         return jsonify({"error": "No seats provided"}), 400
-
-    now_iso = iso(utc_now())
 
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("BEGIN IMMEDIATE")
 
-        # 1) verify all seats are reserved by this user (or expired -> not allowed)
+        # verify all are RESERVED
         failed = []
         for s in seats:
             row, seat = s['row'], int(s['seat'])
             cur.execute("""
-              SELECT status, reserved_by_user_id, reserved_until
-              FROM Tickets
+              SELECT status FROM Tickets
               WHERE event_id=? AND row_name=? AND seat_number=?
             """, (event_id, row, seat))
-            rec = cur.fetchone()
-            if not rec or rec['status'] == 'SOLD':
-                failed.append(f"{row}{seat}")
-                continue
-            if rec['status'] != 'RESERVED' or rec['reserved_by_user_id'] != user_id or (rec['reserved_until'] and rec['reserved_until'] < now_iso):
+            r = cur.fetchone()
+            if not r or r['status'] != 'RESERVED':
                 failed.append(f"{row}{seat}")
 
         if failed:
             conn.rollback()
             return jsonify({"error": "Seats not purchasable", "seats": failed}), 409
 
-        # 2) mark SOLD + write ownership
+        # mark SOLD + write ownership
+        now_iso = datetime.utcnow().replace(microsecond=0).isoformat()
         for s in seats:
             row, seat = s['row'], int(s['seat'])
-            barcode = gen_barcode(event_id, row, seat)
+            barcode = f"{event_id}-{row}{seat}-{int(datetime.utcnow().timestamp())}"
 
             cur.execute("""
               UPDATE Tickets
-              SET status='SOLD', reserved_by_user_id=NULL, reserved_until=NULL
-              WHERE event_id=? AND row_name=? AND seat_number=?
+              SET status='SOLD'
+              WHERE event_id=? AND row_name=? AND seat_number=? AND status='RESERVED'
             """, (event_id, row, seat))
 
             cur.execute("""
@@ -425,14 +384,12 @@ def purchase(event_id):
 
         conn.commit()
         return jsonify({"message": "Purchased", "count": len(seats)}), 200
-
     except Exception as e:
         try: conn.rollback()
         except: pass
         return jsonify({'error': str(e)}), 500
     finally:
         conn.close()
-
 
 if __name__ == '__main__':
     print(app.url_map)

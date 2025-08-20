@@ -1,5 +1,5 @@
 // src/pages/EventDetail.jsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import SeatPicker from "react-seat-picker";
 import PaymentModal from "../components/PaymentModal";
@@ -23,44 +23,32 @@ import {
 } from "@chakra-ui/react";
 import { CheckCircleIcon } from "@chakra-ui/icons";
 
-/* ---------- Helpers ---------- */
+/* ------------ helpers ------------ */
 
-// Convert `/events/:id/tickets` rows into react-seat-picker shape
-// Input rows must contain: row_name, seat_number, status, base_price
+// Convert /events/:id/tickets rows into react-seat-picker shape
 function ticketsToRows(tickets) {
   if (!Array.isArray(tickets) || tickets.length === 0) return [];
-
-  // group by row (A, B, C…)
   const byRow = new Map();
   for (const t of tickets) {
-    const row = t.row_name;
-    if (!byRow.has(row)) byRow.set(row, []);
-    byRow.get(row).push(t);
+    if (!byRow.has(t.row_name)) byRow.set(t.row_name, []);
+    byRow.get(t.row_name).push(t);
   }
-
-  // sort rows alphabetically (A, B, C…)
   const rowNames = [...byRow.keys()].sort((a, b) => a.localeCompare(b));
-
   return rowNames.map((rowName) => {
     const seats = byRow.get(rowName).sort((a, b) => a.seat_number - b.seat_number);
-
     const maxSeat = seats.length ? seats[seats.length - 1].seat_number : 0;
     const byNumber = new Map(seats.map((s) => [s.seat_number, s]));
     const rowArray = [];
-
     for (let n = 1; n <= maxSeat; n++) {
       const t = byNumber.get(n);
       if (!t) {
-        // gap/aisle (no seat created at this position)
         rowArray.push(null);
         continue;
       }
-      const isAvailable = t.status === "AVAILABLE";
       rowArray.push({
         id: `${rowName}${n}`,
         number: n,
-        // Disable click only if not available (RESERVED/SOLD from server)
-        isReserved: !isAvailable,
+        isReserved: t.status !== "AVAILABLE", // RESERVED or SOLD
         tooltip: t.base_price != null ? `$${t.base_price}` : undefined,
       });
     }
@@ -72,24 +60,14 @@ const priceFromTooltip = (tooltip) =>
   Number(String(tooltip || "$0").replace("$", "")) || 0;
 
 const seatId = (row, number) => `${row}${number}`;
-
 const parseSeatId = (sid) => {
   const m = String(sid).match(/^([A-Za-z]+)(\d+)$/);
   return { row: m ? m[1] : "", seat: m ? parseInt(m[2], 10) : NaN };
 };
 
-/* ---------- Best available (cart-only) ---------- */
-/**
- * Finds the "best" contiguous block of seats of size qty **that are currently clickable**.
- * Heuristics:
- *  - Prefer earlier rows (A before B…)
- *  - Prefer blocks closest to the center of the row
- *  - Tie-break by lower average price
- */
+// Best-available finder (cart-only)
 function findBestBlock(rows, qty, priceById) {
   if (!rows?.length || qty < 1) return null;
-
-  // Map row index -> label by peeking first non-null seat
   const rowLabels = rows.map((row) => {
     const firstSeat = row?.find((s) => s && s.id);
     if (!firstSeat) return "?";
@@ -103,7 +81,6 @@ function findBestBlock(rows, qty, priceById) {
     const row = rows[rIndex];
     if (!row || row.length === 0) continue;
 
-    // Scan “runs” of clickable seats (seat != null && !seat.isReserved)
     let i = 0;
     while (i < row.length) {
       while (i < row.length && (!row[i] || row[i].isReserved)) i++;
@@ -112,7 +89,6 @@ function findBestBlock(rows, qty, priceById) {
       let j = i;
       while (j < row.length && row[j] && !row[j].isReserved) j++;
 
-      // Now we have an available run [i, j)
       const runLen = j - i;
       if (runLen >= qty) {
         for (let start = i; start <= j - qty; start++) {
@@ -120,8 +96,8 @@ function findBestBlock(rows, qty, priceById) {
           const ids = block.map((s) => s.id);
           const nums = block.map((s) => s.number);
 
-          // price/center scoring
-          const avgPrice = ids.reduce((acc, id) => acc + (priceById[id] || 0), 0) / qty;
+          const avgPrice =
+            ids.reduce((acc, id) => acc + (priceById[id] || 0), 0) / qty;
 
           const rowSeatNums = row.filter(Boolean).map((s) => s.number);
           const minNum = rowSeatNums.length ? Math.min(...rowSeatNums) : 1;
@@ -130,96 +106,98 @@ function findBestBlock(rows, qty, priceById) {
           const blockCenter = (nums[0] + nums[nums.length - 1]) / 2;
           const centerDistance = Math.abs(blockCenter - center);
 
-          // Lower score is better
+          // Lower score wins
           const score = rIndex * 10000 + centerDistance * 100 + avgPrice;
 
           if (!best || score < best.score) {
-            best = {
-              score,
-              rowLabel: rowLabels[rIndex],
-              ids,
-              seatNumbers: nums,
-            };
+            best = { score, rowLabel: rowLabels[rIndex], ids, seatNumbers: nums };
           }
         }
       }
       i = j;
     }
   }
-
   return best;
 }
 
-/* ---------- Page ---------- */
+/* ------------ component ------------ */
 
 export default function EventDetail() {
   const { id } = useParams();
   const toast = useToast();
 
-  const [rows, setRows] = useState([]);            // map for seat-picker
-  const [selected, setSelected] = useState([]);    // cart: ["A1","A2",...]
+  const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5000";
+  const getToken = () => localStorage.getItem("access_token");
+  const getAuthHeaders = () => {
+    const t = getToken();
+    return {
+      "Content-Type": "application/json",
+      ...(t ? { Authorization: `Bearer ${t}` } : {}),
+    };
+  };
+
+  const [rows, setRows] = useState([]);
+  const [selected, setSelected] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadingMap, setLoadingMap] = useState(true);
 
+  // Payment modal state (we create PI after reserving)
   const [payOpen, setPayOpen] = useState(false);
+  const [clientSecret, setClientSecret] = useState(null);
+  const [paymentIntentId, setPaymentIntentId] = useState(null);
+
   const [bestQty, setBestQty] = useState(2);
 
-  // Load live inventory (SOLD/RESERVED/AVAILABLE)
+  // Load seat map
   const loadMap = async () => {
     setLoadingMap(true);
     try {
-      const res = await fetch(`http://localhost:5000/events/${id}/tickets`);
+      const res = await fetch(`${API_BASE}/events/${id}/tickets`);
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setRows(ticketsToRows(data));
     } catch (e) {
       console.warn("Map load failed:", e?.message || e);
-      setRows([]); // empty map instead of demo to avoid confusion
+      setRows([]);
     } finally {
       setLoadingMap(false);
     }
   };
 
   useEffect(() => {
-    setSelected([]); // reset cart when switching events
+    setSelected([]);
+    setClientSecret(null);
+    setPaymentIntentId(null);
     loadMap();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  // Price lookup for totals/tooltips
+  // Price lookup
   const priceById = useMemo(() => {
     const map = {};
-    for (const r of rows) {
-      for (const s of r) {
-        if (s) map[s.id] = priceFromTooltip(s.tooltip);
-      }
-    }
+    for (const r of rows) for (const s of r) if (s) map[s.id] = priceFromTooltip(s.tooltip);
     return map;
   }, [rows]);
 
   const total = selected.reduce((sum, sid) => sum + (priceById[sid] || 0), 0);
   const amountCents = Math.round(total * 100);
-  const token = localStorage.getItem("access_token");
 
-  /* ---------- Click (cart-only; no server reserve) ---------- */
+  // SeatPicker callbacks (cart-only)
   const addSeatCallback = ({ row, number }, addCb) => {
     const sid = seatId(row, number);
     setSelected((prev) => (prev.includes(sid) ? prev : [...prev, sid]));
-    // Let seat-picker paint it as selected
     addCb(row, number, sid, "Added to cart");
   };
-
   const removeSeatCallback = ({ row, number }, removeCb) => {
     const sid = seatId(row, number);
     setSelected((prev) => prev.filter((x) => x !== sid));
     removeCb(row, number);
   };
 
-  /* ---------- Best Available (cart-only; no server reserve) ---------- */
+  // Best available (cart-only)
   const onBestAvailable = () => {
     const qty = Math.max(1, Math.min(10, Number(bestQty) || 1));
     const block = findBestBlock(rows, qty, priceById);
-
     if (!block) {
       toast({
         title: "No block available",
@@ -230,35 +208,37 @@ export default function EventDetail() {
       });
       return;
     }
-
-    // Merge into cart without duplicates
     setSelected((prev) => {
       const next = new Set(prev);
       block.ids.forEach((id) => next.add(id));
       return [...next];
     });
-
     toast({
       title: "Added to cart",
-      description: `${block.rowLabel}${block.seatNumbers[0]}–${
-        block.rowLabel
-      }${block.seatNumbers[block.seatNumbers.length - 1]} (${qty})`,
+      description: `${block.rowLabel}${block.seatNumbers[0]}–${block.rowLabel}${
+        block.seatNumbers.at(-1)
+      } (${qty})`,
       status: "success",
       duration: 2000,
       isClosable: true,
     });
-
-    // Also visually mark selected in the grid:
-    // We can’t call addCb from here, so quick trick: reload map then
-    // re-apply selection on render (react-seat-picker will paint them as selected
-    // because we pass addSeatCallback only on user click).
-    // Instead of hacking addCb, we’ll leave the UI as-is — the cart chips reflect selection.
-    // (Optional: you can re-render the grid by toggling a key if you want visual “selected” state.)
   };
 
-  /* ---------- Checkout ---------- */
-  const onPurchase = () => {
+  // Selected -> {row, seat} for server
+  const selectedSeatsForServer = useMemo(
+    () =>
+      selected.map((sid) => {
+        const { row, seat } = parseSeatId(sid);
+        return { row, seat };
+      }),
+    [selected]
+  );
+
+  // Reserve -> create PI -> open modal
+  const onPurchase = async () => {
     if (!selected.length) return;
+
+    const token = getToken();
     if (!token) {
       toast({
         title: "Login required",
@@ -269,28 +249,104 @@ export default function EventDetail() {
       });
       return;
     }
-    setPayOpen(true);
+
+    try {
+      setLoading(true);
+
+      // 1) Reserve
+      const r1 = await fetch(`${API_BASE}/events/${id}/tickets/reserve`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ seats: selectedSeatsForServer }),
+      });
+
+      if (!r1.ok) {
+        // Try to parse server message
+        let body = null;
+        try { body = await r1.clone().json(); } catch {}
+        console.error("Reserve failed", r1.status, body || (await r1.text()));
+
+        if (r1.status === 401) {
+          throw new Error("Your session expired. Please log in again.");
+        }
+
+        if (r1.status === 409 && Array.isArray(body?.seats) && body.seats.length) {
+          // Remove conflicting seats from cart and refresh map
+          const blocked = body.seats; // ["A1","B3"...]
+          setSelected((prev) => prev.filter((sid) => !blocked.includes(sid)));
+          toast({
+            title: "Checkout unavailable",
+            description: `These seats are unavailable: ${blocked.join(", ")}`,
+            status: "error",
+            duration: 4000,
+            isClosable: true,
+          });
+          await loadMap();
+          return; // don't proceed to payment
+        }
+
+        throw new Error(body?.error || "Could not reserve seats");
+      }
+
+      // 2) Create PaymentIntent
+      const r2 = await fetch(`${API_BASE}/events/${id}/payments/create-intent`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ seats: selectedSeatsForServer }),
+      });
+      const p = await r2.json().catch(() => ({}));
+      if (!r2.ok || !p?.clientSecret) {
+        // best-effort unreserve if PI creation fails
+        await fetch(`${API_BASE}/events/${id}/tickets/unreserve`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ seats: selectedSeatsForServer }),
+        }).catch(() => {});
+        throw new Error(p?.error || "Could not start payment");
+      }
+
+      setClientSecret(p.clientSecret);
+      setPaymentIntentId(p.paymentIntentId);
+      setPayOpen(true);
+    } catch (e) {
+      toast({
+        title: "Checkout error",
+        description: e.message,
+        status: "error",
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const selectedSeatsForServer = useMemo(
-    () =>
-      selected.map((sid) => {
-        const { row, seat } = parseSeatId(sid);
-        return { row, seat };
-      }),
-    [selected]
-  );
+  // If user closes modal w/o paying, release the seats
+  const handleCloseModal = async () => {
+    setPayOpen(false);
+    if (clientSecret && paymentIntentId) {
+      await fetch(`${API_BASE}/events/${id}/tickets/unreserve`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ seats: selectedSeatsForServer }),
+      }).catch(() => {});
+    }
+    setClientSecret(null);
+    setPaymentIntentId(null);
+  };
 
-  const refreshAfterSuccess = async () => {
+  const handleSuccess = async () => {
+    setPayOpen(false);
+    setClientSecret(null);
+    setPaymentIntentId(null);
     setSelected([]);
     await loadMap();
   };
 
-  /* ---------- UI ---------- */
   return (
     <Box px={{ base: 4, md: 10 }} py={6}>
       <Flex gap={8} direction={{ base: "column", lg: "row" }}>
-        {/* Left: event card (placeholder) */}
+        {/* Left: event card */}
         <Box
           flex="0 0 360px"
           bg="#0f172a"
@@ -349,12 +405,10 @@ export default function EventDetail() {
               </HStack>
             </Flex>
 
-            {/* Best available controls (cart-only) */}
+            {/* Best available controls */}
             <HStack mb={3} gap={3} flexWrap="wrap">
               <HStack>
-                <Text fontSize="sm" opacity={0.85}>
-                  Best available for
-                </Text>
+                <Text fontSize="sm" opacity={0.85}>Best available for</Text>
                 <Select
                   size="sm"
                   value={bestQty}
@@ -362,20 +416,15 @@ export default function EventDetail() {
                   w="72px"
                   bg="rgba(255,255,255,0.04)"
                 >
-                  {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
+                  {[1,2,3,4,5,6,7,8].map((n) => (
+                    <option key={n} value={n}>{n}</option>
                   ))}
                 </Select>
-                <Text fontSize="sm" opacity={0.85}>
-                  seats
-                </Text>
+                <Text fontSize="sm" opacity={0.85}>seats</Text>
               </HStack>
               <Button
                 size="sm"
                 colorScheme="blue"
-                variant="solid"
                 onClick={onBestAvailable}
                 isLoading={loading}
               >
@@ -383,16 +432,8 @@ export default function EventDetail() {
               </Button>
             </HStack>
 
-            <Box
-              border="1px solid rgba(255,255,255,0.12)"
-              rounded="lg"
-              p={4}
-              minH="140px"
-            >
-              <Text textAlign="center" mb={2} fontWeight="semibold">
-                Stage
-              </Text>
-
+            <Box border="1px solid rgba(255,255,255,0.12)" rounded="lg" p={4} minH="140px">
+              <Text textAlign="center" mb={2} fontWeight="semibold">Stage</Text>
               {loadingMap ? (
                 <HStack justify="center" py={10}>
                   <Spinner />
@@ -403,7 +444,7 @@ export default function EventDetail() {
                   rows={rows}
                   alpha
                   visible
-                  maxReservableSeats={20} // cart-only, so allow more if you want
+                  maxReservableSeats={20}
                   loading={loading}
                   addSeatCallback={addSeatCallback}
                   removeSeatCallback={removeSeatCallback}
@@ -412,7 +453,7 @@ export default function EventDetail() {
             </Box>
           </Box>
 
-          {/* Cart summary */}
+          {/* Cart */}
           <Flex
             mt={4}
             bg="#0f172a"
@@ -433,12 +474,10 @@ export default function EventDetail() {
                   {selected.map((sid) => (
                     <Tag key={sid} size="md" colorScheme="blue" variant="subtle">
                       <TagLabel>
-                        {sid} • ${priceById[sid]?.toFixed(0)}
+                        {sid} • ${ (priceById[sid] ?? 0).toFixed(0) }
                       </TagLabel>
                       <TagCloseButton
-                        onClick={() =>
-                          setSelected((prev) => prev.filter((x) => x !== sid))
-                        }
+                        onClick={() => setSelected((prev) => prev.filter((x) => x !== sid))}
                       />
                     </Tag>
                   ))}
@@ -463,15 +502,17 @@ export default function EventDetail() {
         </Box>
       </Flex>
 
-      {/* Payment modal (will handle real reserve/payment/purchase) */}
+      {/* Payment modal (we pass clientSecret/PI after reserve) */}
       <PaymentModal
         isOpen={payOpen}
-        onClose={() => setPayOpen(false)}
+        onClose={handleCloseModal}
         eventId={id}
         seats={selectedSeatsForServer}
         amountCents={amountCents}
-        token={token}
-        onSuccess={refreshAfterSuccess}
+        token={getToken()}
+        clientSecret={clientSecret}
+        paymentIntentId={paymentIntentId}
+        onSuccess={handleSuccess}
       />
     </Box>
   );

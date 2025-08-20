@@ -1,4 +1,5 @@
-import React from "react";
+// src/components/Navbar.jsx
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Box,
   Flex,
@@ -23,6 +24,8 @@ import { SiAseprite } from "react-icons/si";
 import { FiMenu } from "react-icons/fi";
 import { ColorModeButton } from "./ui/color-mode";
 
+const API_BASE = "http://localhost:5000";
+
 function NavLink({ to, icon, children }) {
   const location = useLocation();
   const isActive =
@@ -42,7 +45,11 @@ function NavLink({ to, icon, children }) {
       color={isActive ? activeColor : "inherit"}
       size="sm"
       fontWeight="extrabold"
-      _hover={{ bg: isActive ? activeBg : useColorModeValue("blackAlpha.100", "whiteAlpha.200") }}
+      _hover={{
+        bg: isActive
+          ? activeBg
+          : useColorModeValue("blackAlpha.100", "whiteAlpha.200"),
+      }}
       _active={{ transform: "translateY(1px)" }}
       rounded="lg"
     >
@@ -53,13 +60,64 @@ function NavLink({ to, icon, children }) {
 
 export default function Navbar() {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const [token, setToken] = useState(
+    () => localStorage.getItem("access_token") || null
+  );
+  const [me, setMe] = useState(null); // { username, email }
+
+  // Subtle glass look
   const bg = useColorModeValue("whiteAlpha.70", "blackAlpha.400");
   const border = useColorModeValue("blackAlpha.100", "whiteAlpha.200");
-  const token = localStorage.getItem("access_token") || localStorage.getItem("token");
 
+  // Re-read token whenever route changes (helps update right after login/logout)
+  useEffect(() => {
+    setToken(localStorage.getItem("access_token") || null);
+  }, [location]);
+
+  // Fetch user profile if logged in; clear token if expired
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProfile() {
+      if (!token) {
+        setMe(null);
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE}/user/profile`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        const data = await res.json();
+        if (!cancelled) setMe(data); // { username, email }
+      } catch {
+        // token invalid/expired; clear gracefully
+        localStorage.removeItem("access_token");
+        if (!cancelled) {
+          setMe(null);
+          setToken(null);
+        }
+      }
+    }
+
+    loadProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const isLoggedIn = useMemo(() => Boolean(token && me), [token, me]);
+
+  // Show Create Event when logged in
+  //const showCreate = isLoggedIn; // Change to: isLoggedIn && me?.email === "yashu.bry04@gmail.com" for admin-only
+  const showCreate = isLoggedIn && me?.email === "yashu.bry04@gmail.com";
+  
   const handleLogout = () => {
     localStorage.removeItem("access_token");
-    localStorage.removeItem("token");
+    setMe(null);
+    setToken(null);
     navigate("/login");
   };
 
@@ -106,11 +164,18 @@ export default function Navbar() {
               <NavLink to="/events" icon={<LuPartyPopper />}>
                 events
               </NavLink>
-              <NavLink to="/user/profile" icon={<SiAseprite />}>
-                profile
-              </NavLink>
+              {isLoggedIn && (
+                <NavLink to="/user/profile" icon={<SiAseprite />}>
+                  profile
+                </NavLink>
+              )}
+              {showCreate && (
+                <NavLink to="/admin/create-event" icon={<LuPartyPopper />}>
+                  create
+                </NavLink>
+              )}
 
-              {token ? (
+              {isLoggedIn ? (
                 <Button
                   onClick={handleLogout}
                   size="sm"
@@ -119,19 +184,32 @@ export default function Navbar() {
                   rounded="lg"
                   fontWeight="extrabold"
                 >
-                  log out
+                  log out{me?.username ? ` (${me.username})` : ""}
                 </Button>
               ) : (
-                <Button
-                  as={RouterLink}
-                  to="/login"
-                  size="sm"
-                  colorScheme="teal"
-                  rounded="lg"
-                  fontWeight="extrabold"
-                >
-                  log in
-                </Button>
+                <HStack>
+                  <Button
+                    as={RouterLink}
+                    to="/login"
+                    size="sm"
+                    colorScheme="teal"
+                    rounded="lg"
+                    fontWeight="extrabold"
+                  >
+                    log in
+                  </Button>
+                  <Button
+                    as={RouterLink}
+                    to="/register"
+                    size="sm"
+                    variant="ghost"
+                    colorScheme="teal"
+                    rounded="lg"
+                    fontWeight="extrabold"
+                  >
+                    sign up
+                  </Button>
+                </HStack>
               )}
 
               <ColorModeButton />
@@ -159,15 +237,27 @@ export default function Navbar() {
                   <MenuItem as={RouterLink} to="/events" icon={<LuPartyPopper />}>
                     events
                   </MenuItem>
-                  <MenuItem as={RouterLink} to="/user/profile" icon={<SiAseprite />}>
-                    profile
-                  </MenuItem>
-                  {token ? (
+                  {isLoggedIn && (
+                    <MenuItem as={RouterLink} to="/user/profile" icon={<SiAseprite />}>
+                      profile
+                    </MenuItem>
+                  )}
+                  {showCreate && (
+                    <MenuItem as={RouterLink} to="/admin/create-event">
+                      create
+                    </MenuItem>
+                  )}
+                  {isLoggedIn ? (
                     <MenuItem onClick={handleLogout}>log out</MenuItem>
                   ) : (
-                    <MenuItem as={RouterLink} to="/login">
-                      log in
-                    </MenuItem>
+                    <>
+                      <MenuItem as={RouterLink} to="/login">
+                        log in
+                      </MenuItem>
+                      <MenuItem as={RouterLink} to="/register">
+                        sign up
+                      </MenuItem>
+                    </>
                   )}
                 </MenuList>
               </Menu>

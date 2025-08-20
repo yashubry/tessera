@@ -5,6 +5,11 @@ import json
 import string
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from dotenv import load_dotenv
+import stripe
+load_dotenv()
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -25,6 +30,7 @@ app = Flask(__name__)
 
 # Liberal CORS for local dev
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 @app.after_request
 def add_cors_headers(resp):
@@ -36,6 +42,22 @@ app.config["JWT_SECRET_KEY"] = "imsohungryhelp"  # change in production
 jwt = JWTManager(app)
 
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
+
+def _safe_username_seed(email: str, fallback: str = "user"):
+    base = (email.split("@")[0] if email and "@" in email else fallback).strip()
+    base = "".join(ch for ch in base if ch.isalnum() or ch in ("_", "-")) or fallback
+    return base[:24]
+
+def _ensure_unique_username(cur, seed: str) -> str:
+    u = seed
+    suffix = 0
+    while True:
+        row = cur.execute("SELECT 1 FROM Users WHERE username = ?", (u,)).fetchone()
+        if not row:
+            return u
+        suffix += 1
+        u = f"{seed}{suffix}"
+
 
 # -----------------------------------------------------------------------------
 # DB helpers
@@ -119,6 +141,61 @@ def normalize_time(s: str) -> str:
             pass
     raise ValueError("Invalid time")
 
+@app.post("/auth/google")
+def google_auth():
+    """
+    Body: { "id_token": "<google id token from @react-oauth/google GoogleLogin>" }
+    - Verifies with Google
+    - Upserts user in Users table (random password hash to satisfy schema)
+    - Returns our app JWT: { access_token }
+    """
+    data = request.get_json(silent=True) or {}
+    id_token = data.get("id_token")
+    if not id_token:
+        return jsonify({"error": "Missing id_token"}), 400
+
+    # Verify ID token using Google's tokeninfo (simple; production can use google-auth verify_oauth2_token)
+    try:
+        r = requests.get("https://oauth2.googleapis.com/tokeninfo", params={"id_token": id_token}, timeout=6)
+        info = r.json()
+        if r.status_code != 200:
+            return jsonify({"error": "Invalid Google token"}), 401
+
+        aud = info.get("aud")
+        email = (info.get("email") or "").strip().lower()
+        email_verified = info.get("email_verified") in ("true", True)
+        name = info.get("name") or ""
+        if GOOGLE_CLIENT_ID and aud != GOOGLE_CLIENT_ID:
+            return jsonify({"error": "Token audience mismatch"}), 401
+        if not email or not email_verified:
+            return jsonify({"error": "Email not verified on Google account"}), 401
+
+        # Upsert user
+        with get_db_connection() as conn:
+            cur = conn.cursor()
+            row = cur.execute("SELECT user_id FROM Users WHERE email = ?", (email,)).fetchone()
+            if row:
+                user_id = row["user_id"]
+            else:
+                # create a username (unique) + random password (hashed)
+                seed = _safe_username_seed(email, "user")
+                username = _ensure_unique_username(cur, seed)
+                random_pw = secrets.token_urlsafe(24)
+                pw_hash = generate_password_hash(random_pw)
+                cur.execute(
+                    "INSERT INTO Users (email, username, password_hash) VALUES (?, ?, ?)",
+                    (email, username, pw_hash),
+                )
+                conn.commit()
+                user_id = cur.lastrowid
+
+        # mint our JWT (identity = user_id as string, to match your existing code)
+        access_token = create_access_token(identity=str(user_id), expires_delta=timedelta(hours=1))
+        return jsonify({"access_token": access_token}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
 # -----------------------------------------------------------------------------
 # Admin: create event (optional) + generate tickets
 # -----------------------------------------------------------------------------

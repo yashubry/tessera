@@ -3,29 +3,14 @@ import { useEffect, useState } from 'react'
 import { useNavigate, Link as RouterLink } from 'react-router-dom'
 import axios from 'axios'
 import {
-  Box,
-  Button,
-  Checkbox,
-  Container,
-  Flex,
-  FormControl,
-  FormLabel,
-  Heading,
-  HStack,
-  IconButton,
-  Image,
-  Input,
-  InputGroup,
-  InputRightElement,
-  Link,
-  Stack,
-  Text,
-  useColorModeValue,
-  useToast,
+  Box, Button, Checkbox, Container, Flex, FormControl, FormLabel,
+  Heading, HStack, IconButton, Image, Input, InputGroup, InputRightElement,
+  Link, Stack, Text, useColorModeValue, useToast,
 } from '@chakra-ui/react'
 import { ViewIcon, ViewOffIcon } from '@chakra-ui/icons'
+import { GoogleLogin } from '@react-oauth/google'
 
-const API_BASE = 'http://localhost:5000'
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000'
 
 export default function Login() {
   const [username, setUsername] = useState('')
@@ -58,25 +43,41 @@ export default function Login() {
       const res = await axios.post(`${API_BASE}/login`, { username, password })
       const token = res.data?.access_token
       if (!token) throw new Error('No token returned')
-
       localStorage.setItem('access_token', token)
-
-      toast({
-        title: 'Welcome back!',
-        status: 'success',
-        duration: 1500,
-        isClosable: true,
-      })
+      toast({ title: 'Welcome back!', status: 'success', duration: 1500, isClosable: true })
       navigate('/events')
     } catch (err) {
-      const msg =
-        err?.response?.status === 401
-          ? 'Invalid username or password.'
-          : 'Something went wrong. Please try again.'
+      const msg = err?.response?.status === 401 ? 'Invalid username or password.' : 'Something went wrong. Please try again.'
       toast({ title: 'Login failed', description: msg, status: 'error', duration: 3500, isClosable: true })
     } finally {
       setLoading(false)
     }
+  }
+
+  // --- Google OAuth handlers ---
+  const onGoogleSuccess = async (credentialResponse) => {
+    try {
+      const id_token = credentialResponse?.credential
+      if (!id_token) throw new Error('No Google credential')
+      const res = await axios.post(`${API_BASE}/auth/google`, { id_token })
+      const token = res.data?.access_token
+      if (!token) throw new Error('No app token returned')
+      localStorage.setItem('access_token', token)
+      toast({ title: 'Signed in with Google', status: 'success', duration: 1500, isClosable: true })
+      navigate('/events')
+    } catch (err) {
+      toast({
+        title: 'Google sign-in failed',
+        description: err?.response?.data?.error || err.message,
+        status: 'error',
+        duration: 4000,
+        isClosable: true
+      })
+    }
+  }
+
+  const onGoogleError = () => {
+    toast({ title: 'Google sign-in canceled', status: 'info', duration: 2000, isClosable: true })
   }
 
   const bgCard = useColorModeValue('white', 'gray.800')
@@ -88,9 +89,7 @@ export default function Login() {
       <Container maxW="lg" py={{ base: 10, md: 16 }} flex="1">
         <Stack spacing={8}>
           <Stack spacing={1}>
-            <Heading size="2xl" lineHeight="shorter">
-              sign in
-            </Heading>
+            <Heading size="2xl" lineHeight="shorter">sign in</Heading>
             <Text color="gray.500">Welcome back—grab your seats.</Text>
           </Stack>
 
@@ -130,14 +129,18 @@ export default function Login() {
 
               <HStack justify="space-between">
                 <Checkbox defaultChecked>Remember me</Checkbox>
-                <Link as={RouterLink} to="#" color="teal.400">
-                  Forgot password?
-                </Link>
+                <Link as={RouterLink} to="#" color="teal.400">Forgot password?</Link>
               </HStack>
 
               <Button colorScheme="teal" onClick={submit} isLoading={loading}>
                 Sign in
               </Button>
+
+              <Text textAlign="center" color="gray.500">or</Text>
+
+              <Box display="flex" justifyContent="center">
+                <GoogleLogin onSuccess={onGoogleSuccess} onError={onGoogleError} />
+              </Box>
 
               <Text textAlign="center" color="gray.500">
                 New here?{' '}
@@ -152,13 +155,7 @@ export default function Login() {
 
       {/* Right: image */}
       <Box flex="1" display={{ base: 'none', md: 'block' }}>
-        <Image
-          alt="Concert crowd"
-          src="https://i.imgur.com/taseBi0.jpeg"
-          objectFit="cover"
-          h="100%"
-          w="100%"
-        />
+        <Image alt="Concert crowd" src="https://i.imgur.com/taseBi0.jpeg" objectFit="cover" h="100%" w="100%" />
       </Box>
     </Flex>
   )

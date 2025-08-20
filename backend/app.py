@@ -3,7 +3,7 @@ import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
 #import bcrypt #apparently this is important for password hashing 
 from geopy.geocoders import Nominatim
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import requests
 import os 
 from flask_cors import CORS
@@ -289,16 +289,19 @@ def get_profile():
 
 # === Inventory – no reserved_until / reserved_by_user_id =====================
 
-# List tickets (PUBLIC)
 @app.route('/events/<int:event_id>/tickets', methods=['GET'])
 def list_tickets(event_id):
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("""
-          SELECT t.row_name, t.seat_number, t.status, p.base_price
+          SELECT
+            t.row_name,
+            t.seat_number,
+            t.status,
+            COALESCE(p.base_price, 0) AS base_price
           FROM Tickets t
-          JOIN PriceCodes p ON t.price_code_id = p.price_code_id
+          LEFT JOIN PriceCodes p ON t.price_code_id = p.price_code_id
           WHERE t.event_id = ?
           ORDER BY t.row_name, t.seat_number
         """, (event_id,))

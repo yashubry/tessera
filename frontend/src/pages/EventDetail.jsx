@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import SeatPicker from "react-seat-picker";
+import PaymentModal from "../components/PaymentModal"; // <- note path
 import {
   Box,
   Flex,
@@ -77,6 +78,12 @@ const priceFromTooltip = (tooltip) =>
 
 const seatId = (row, number) => `${row}${number}`;
 
+// robustly parse ids like "A1", "AA12"
+const parseSeatId = (sid) => {
+  const m = String(sid).match(/^([A-Za-z]+)(\d+)$/);
+  return { row: m ? m[1] : "", seat: m ? parseInt(m[2], 10) : NaN };
+};
+
 // ------- Page ----------------------------------------------------------------
 
 export default function EventDetail() {
@@ -87,6 +94,9 @@ export default function EventDetail() {
   const [selected, setSelected] = useState([]); // ["A1", "B2", ...]
   const [loading, setLoading] = useState(false);
   const [loadingMap, setLoadingMap] = useState(true);
+
+  // payment modal
+  const [payOpen, setPayOpen] = useState(false);
 
   // Try to load real inventory; fall back to demoRows on error
   useEffect(() => {
@@ -126,6 +136,7 @@ export default function EventDetail() {
   }, [rows]);
 
   const total = selected.reduce((sum, sid) => sum + (priceById[sid] || 0), 0);
+  const amountCents = Math.round(total * 100);
   const token = localStorage.getItem("access_token");
 
   // Callbacks for react-seat-picker
@@ -135,6 +146,7 @@ export default function EventDetail() {
 
     try {
       if (token) {
+        const { row: rowLabel, seat } = parseSeatId(sid);
         const res = await fetch(
           `http://localhost:5000/events/${id}/tickets/reserve`,
           {
@@ -143,10 +155,11 @@ export default function EventDetail() {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify({ seats: [{ row, seat: number }] }),
+            body: JSON.stringify({ seats: [{ row: rowLabel, seat }] }),
           }
         );
-        if (!res.ok) throw new Error((await res.json()).error || "Reserve failed");
+        if (!res.ok)
+          throw new Error((await res.json()).error || "Reserve failed");
       }
 
       setSelected((prev) => (prev.includes(sid) ? prev : [...prev, sid]));
@@ -170,6 +183,7 @@ export default function EventDetail() {
 
     try {
       if (token) {
+        const { row: rowLabel, seat } = parseSeatId(sid);
         const res = await fetch(
           `http://localhost:5000/events/${id}/tickets/unreserve`,
           {
@@ -178,10 +192,13 @@ export default function EventDetail() {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify({ seats: [{ row, seat: number }] }),
+            body: JSON.stringify({ seats: [{ row: rowLabel, seat }] }),
           }
         );
-        if (!res.ok) throw new Error((await res.json()).error || "Unreserve failed");
+        if (!res.ok)
+          throw new Error(
+            (await res.json()).error || "Unreserve failed"
+          );
       }
 
       setSelected((prev) => prev.filter((x) => x !== sid));
@@ -199,9 +216,9 @@ export default function EventDetail() {
     }
   };
 
-  const onPurchase = async () => {
+  // Open payment modal (backend will recompute price/validate)
+  const onPurchase = () => {
     if (!selected.length) return;
-
     if (!token) {
       toast({
         title: "Login required",
@@ -212,55 +229,22 @@ export default function EventDetail() {
       });
       return;
     }
+    setPayOpen(true);
+  };
 
-    try {
-      setLoading(true);
-      const seats = selected.map((sid) => ({
-        row: sid[0],
-        seat: parseInt(sid.slice(1), 10),
-      }));
+  // Seats in the shape the backend expects
+  const selectedSeatsForServer = useMemo(
+    () => selected.map((sid) => parseSeatId(sid)),
+    [selected]
+  );
 
-      const res = await fetch(
-        `http://localhost:5000/events/${id}/tickets/purchase`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ seats }),
-        }
-      );
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || "Purchase failed");
-      }
-
-      toast({
-        title: "Purchase complete",
-        description: "Your seats are now yours 🎉",
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-        icon: <CheckCircleIcon color="green.300" />,
-      });
-
-      setSelected([]);
-      const fresh = await fetch(`http://localhost:5000/events/${id}/tickets`);
-      if (fresh.ok) {
-        const data = await fresh.json();
-        setRows(ticketsToRows(data));
-      }
-    } catch (e) {
-      toast({
-        title: "Payment/fulfillment error",
-        description: e.message,
-        status: "error",
-        duration: 3500,
-        isClosable: true,
-      });
-    } finally {
-      setLoading(false);
+  // Refresh inventory after successful payment/fulfillment
+  const refreshAfterSuccess = async () => {
+    setSelected([]);
+    const fresh = await fetch(`http://localhost:5000/events/${id}/tickets`);
+    if (fresh.ok) {
+      const data = await fresh.json();
+      setRows(ticketsToRows(data));
     }
   };
 
@@ -404,6 +388,17 @@ export default function EventDetail() {
           </Flex>
         </Box>
       </Flex>
+
+      {/* Payment modal */}
+      <PaymentModal
+        isOpen={payOpen}
+        onClose={() => setPayOpen(false)}
+        eventId={id}
+        seats={selectedSeatsForServer}
+        amountCents={amountCents}
+        token={token}
+        onSuccess={refreshAfterSuccess}
+      />
     </Box>
   );
 }

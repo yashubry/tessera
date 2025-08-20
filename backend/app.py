@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 import requests
 import os 
 from flask_cors import CORS
+import stripe
+import json
 
 
 from flask_jwt_extended import create_access_token
@@ -17,10 +19,59 @@ from flask_jwt_extended import JWTManager
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type", "Authorization"])
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY", " ")
+
 
 # Setup the Flask-JWT-Extended extension
 app.config["JWT_SECRET_KEY"] = "imsohungryhelp"  # Change this!
 jwt = JWTManager(app)
+
+def normalize_seats(seats):
+    # seats like {"row": "A", "seat": 5} -> ensures types
+    norm = []
+    for s in seats:
+        norm.append({"row": str(s["row"]), "seat": int(s["seat"])})
+    return norm
+
+def compute_amount_cents_and_verify(event_id, user_id, seats):
+    """
+    Ensures every seat exists, is RESERVED, and held by user_id.
+    Returns (amount_cents, normalized_seats, prices_list) or raises ValueError.
+    """
+    seats = normalize_seats(seats)
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        total = 0.0
+        prices = []
+        for s in seats:
+            row, seat = s["row"], s["seat"]
+
+            # Check DB row
+            rec = cur.execute("""
+                SELECT t.status, pc.base_price
+                  FROM Tickets t
+                  JOIN PriceCodes pc ON pc.price_code_id = t.price_code_id
+                 WHERE t.event_id=? AND t.row_name=? AND t.seat_number=?
+            """, (event_id, row, seat)).fetchone()
+
+            if not rec:
+                raise ValueError(f"Seat {row}{seat} does not exist")
+            if rec["status"] == "SOLD":
+                raise ValueError(f"Seat {row}{seat} already sold")
+            if hold_owner(event_id, row, seat) != user_id:
+                raise ValueError(f"Seat {row}{seat} not reserved by this user or hold expired")
+
+            price = float(rec["base_price"])
+            prices.append(price)
+            total += price
+
+        amount_cents = int(round(total * 100))
+        return amount_cents, seats, prices
+    finally:
+        try: conn.close()
+        except: pass
+
 
 
 def get_db_connection():
@@ -390,6 +441,106 @@ def purchase(event_id):
         return jsonify({'error': str(e)}), 500
     finally:
         conn.close()
+
+@app.route("/events/<int:event_id>/payments/create-intent", methods=["POST"])
+@jwt_required()
+def create_payment_intent(event_id):
+    user_id = int(get_jwt_identity())
+    data = request.get_json() or {}
+    seats = data.get("seats") or []   # [{row:"A", seat:1}, ...]
+
+    if not seats:
+        return jsonify({"error": "No seats provided"}), 400
+
+    try:
+        prune_expired_holds()
+        amount_cents, norm_seats, _ = compute_amount_cents_and_verify(event_id, user_id, seats)
+
+        # Create PI
+        intent = stripe.PaymentIntent.create(
+            amount=amount_cents,
+            currency="usd",
+            # optional: automatic_payment_methods={"enabled": True},
+            metadata={
+                "event_id": str(event_id),
+                "user_id": str(user_id),
+                "seats": json.dumps(norm_seats),
+            },
+        )
+
+        return jsonify({
+            "clientSecret": intent["client_secret"],
+            "paymentIntentId": intent["id"],
+            "amount_cents": amount_cents
+        }), 200
+
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 409
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/events/<int:event_id>/payments/complete", methods=["POST"])
+@jwt_required()
+def complete_payment_and_purchase(event_id):
+    user_id = int(get_jwt_identity())
+    data = request.get_json() or {}
+    seats = data.get("seats") or []
+    payment_intent_id = data.get("payment_intent_id")
+
+    if not seats or not payment_intent_id:
+        return jsonify({"error": "Missing seats or payment_intent_id"}), 400
+
+    try:
+        prune_expired_holds()
+
+        # Verify PI status
+        pi = stripe.PaymentIntent.retrieve(payment_intent_id)
+        if pi["status"] != "succeeded":
+            return jsonify({"error": "Payment not successful"}), 400
+
+        # Recompute to prevent tampering & ensure holds are still valid
+        amount_cents, norm_seats, _ = compute_amount_cents_and_verify(event_id, user_id, seats)
+        if int(pi["amount"]) != int(amount_cents):
+            return jsonify({"error": "Payment amount mismatch"}), 400
+
+        # Fulfill: mark SOLD + write ownership, then clear holds
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("BEGIN IMMEDIATE")
+
+        for s in norm_seats:
+            row, seat = s["row"], s["seat"]
+
+            cur.execute("""
+                UPDATE Tickets SET status='SOLD'
+                 WHERE event_id=? AND row_name=? AND seat_number=?
+            """, (event_id, row, seat))
+
+            cur.execute("""
+                INSERT INTO TicketOwnership (event_id, row_name, seat_number, user_id, barcode, ownership_timestamp)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                event_id, row, seat, user_id,
+                f"{event_id}-{row}{seat}-{int(utc_now().timestamp())}",
+                iso(utc_now())
+            ))
+
+            HOLDS.pop((event_id, row, seat), None)
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({"message": "Purchase completed", "count": len(norm_seats)}), 200
+
+    except ValueError as ve:
+        try: conn.rollback()
+        except: pass
+        return jsonify({"error": str(ve)}), 409
+    except Exception as e:
+        try: conn.rollback()
+        except: pass
+        return jsonify({"error": str(e)}), 500
+
 
 if __name__ == '__main__':
     print(app.url_map)

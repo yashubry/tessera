@@ -27,7 +27,7 @@ import { ViewIcon, ViewOffIcon } from "@chakra-ui/icons";
 import { FiX } from "react-icons/fi";
 
 const API = "http://localhost:5000";
-const getToken = () => localStorage.getItem("token") || "";
+const getToken = () => localStorage.getItem("access_token") || "";
 
 const emailValid = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 const passwordScore = (pw) => {

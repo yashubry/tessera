@@ -80,7 +80,9 @@ export default function EventsPage() {
           value={location}
           onChange={(e) => setLocation(e.target.value)}
         >
-          <option value="harris peeter hall">Harris Peeter Hall</option>
+          <option value="College Park, MD">College Park, MD</option>
+          <option value="Downingtown, PA">Downingtown, PA</option>
+          <option value="Reston, VA">Reston, VA</option>
           <option value="NYC">NYC</option>
           <option value="LA">LA</option>
         </Select>

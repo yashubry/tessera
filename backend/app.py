@@ -63,8 +63,7 @@ def _ensure_unique_username(cur, seed: str) -> str:
 # DB helpers
 # -----------------------------------------------------------------------------
 def get_db_connection():
-    # Adjust path to your repo structure as needed
-    db_path = os.path.abspath("../database/tessera.db")
+    db_path = os.path.abspath('../database/tessera.db')
     print(f"Using database at: {db_path}")
     conn = sqlite3.connect(db_path, timeout=10)
     conn.row_factory = sqlite3.Row
@@ -396,31 +395,42 @@ def create_user():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/login", methods=["POST"])
+@app.route('/login', methods=['POST'])
 def login():
-    data = request.get_json(silent=True) or {}
-    username = data.get("username")
-    password = data.get("password")
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
 
     if not username or not password:
-        return jsonify({"error": "All fields are required"}), 400
+        return jsonify({'error': 'All fields are required.'}), 400
 
     try:
         with get_db_connection() as conn:
-            cur = conn.cursor()
-            row = cur.execute(
-                "SELECT user_id, username, password_hash FROM Users WHERE username=?",
-                (username,),
-            ).fetchone()
-            if not row:
-                return jsonify({"error": "Invalid username or password"}), 401
-            if not check_password_hash(row["password_hash"], password):
-                return jsonify({"error": "Invalid username or password"}), 401
+            cursor = conn.cursor()
+            # Now selecting user_id too
+            cursor.execute('SELECT user_id, username, password_hash FROM Users WHERE username = ?', (username,))
+            row = cursor.fetchone()
 
-            token = create_access_token(identity=str(row["user_id"]), expires_delta=timedelta(hours=1))
-            return jsonify({"message": "Login successful", "access_token": token}), 200
+            if row is None:
+                return jsonify({'error': 'Invalid username or password.'}), 401
+
+            if check_password_hash(row['password_hash'], password):
+                # ✅ Set the identity to be the user's ID
+                access_token = create_access_token(
+                    identity=str(row['user_id']),
+                    expires_delta=timedelta(hours=1)
+                )
+
+                return jsonify({
+                    'message': 'Login successful hooray!',
+                    'access_token': access_token
+                }), 200
+            else:
+                return jsonify({'error': 'Invalid username or password.'}), 401
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
+
 
 
 @app.route("/user/profile", methods=["GET"])

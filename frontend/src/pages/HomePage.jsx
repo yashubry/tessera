@@ -82,11 +82,6 @@ export default function HomePage() {
                   Log in
                 </Button>
               </HStack>
-              <HStack spacing={6} pt={4} color={useColorModeValue("gray.700", "gray.300")}>
-                <HStack><FiShield /><Text>Protected checkout</Text></HStack>
-                <HStack><FiCreditCard /><Text>Stripe test-ready</Text></HStack>
-                <HStack><FiMap /><Text>Seat picker</Text></HStack>
-              </HStack>
             </VStack>
 
             {/* Optional hero art (kept simple) */}
@@ -98,7 +93,7 @@ export default function HomePage() {
               borderWidth="1px"
               bg={useColorModeValue("white", "gray.800")}
               shadow="md"
-              backgroundImage="url('https://images.unsplash.com/photo-1518972559570-7cc1309f3229?q=80&w=1600&auto=format&fit=crop')"
+              backgroundImage="url('https://images.unsplash.com/photo-1533174072545-7a4b6ad7a6c3?fm=jpg&q=60&w=3000&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8ZWRtJTIwZmVzdGl2YWx8ZW58MHx8MHx8fDA%3D')"
               backgroundSize="cover"
               backgroundPosition="center"
             />

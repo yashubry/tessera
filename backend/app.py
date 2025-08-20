@@ -11,9 +11,6 @@ load_dotenv()
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # backend/ folder
-DB_PATH = os.path.abspath(os.path.join(BASE_DIR, "..", "database", "tessera.db"))
-
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 

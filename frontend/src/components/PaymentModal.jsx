@@ -17,15 +17,40 @@ function InnerForm({ isOpen, onClose, eventId, seats, amount, token, onSuccess }
   const [submitting, setSubmitting] = useState(false);
 
   const createIntent = async () => {
-    const res = await fetch(`http://localhost:5000/events/${eventId}/payments/create-intent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ seats }),
-    });
-    if (!res.ok) {
-      throw new Error((await res.json()).error || "Failed to create payment intent");
+    try {
+        // Ensure token and eventId are valid
+        if (!token) {
+            throw new Error("No valid token provided.");
+        }
+
+        // Debugging: Check if the token is being passed correctly
+        console.log("Creating Payment Intent with token:", token);
+
+        // Make the fetch request to the backend
+        const res = await fetch(`http://localhost:5000/events/${eventId}/payments/create-intent`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,  // Ensure token is passed correctly
+            },
+            body: JSON.stringify({ seats }),  // Ensure seats are passed correctly
+        });
+
+        // Check if the response is not OK (i.e., status code outside 2xx)
+        if (!res.ok) {
+            // Read and log the error message from the server
+            const errorResponse = await res.json();
+            console.error("Payment Intent Error:", errorResponse.error);
+            throw new Error(errorResponse.error || "Failed to create payment intent");
+        }
+
+        // Return the response data if the payment intent is successfully created
+        return await res.json();
+    } catch (error) {
+        // Log any errors that occur during the fetch or response handling
+        console.error("Error in createIntent:", error);
+        throw new Error(error.message || "An unknown error occurred");
     }
-    return res.json();
   };
 
   const complete = async (payment_intent_id) => {

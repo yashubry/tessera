@@ -3,6 +3,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import SeatPicker from "react-seat-picker";
 import PaymentModal from "../components/PaymentModal";
+import confetti from "canvas-confetti";
+
 import {
   Box,
   Flex,
@@ -340,6 +342,14 @@ export default function EventDetail() {
     setClientSecret(null);
     setPaymentIntentId(null);
     setSelected([]);
+
+    // Trigger confetti
+    confetti({
+      particleCount: 200,
+      spread: 70,
+      origin: { y: 0.6 },
+    });
+
     await loadMap();
   };
 
